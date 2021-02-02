@@ -95,7 +95,7 @@ class Sudoku:
                     (j+1)*cell_size + block_border*(int(j/3)+1) + j*cell_border, (i+1)*cell_size + block_border*(int(i/3)+1) + i*cell_border],
                     cell_color)
 
-                font = ImageFont.truetype("OpenSans-Regular.ttf", num_size)
+                font = ImageFont.truetype("fonts/OpenSans-Regular.ttf", num_size)
                 w, h = draw.textsize(str(col), font)
                 draw.text((
                     j*cell_size + block_border*(int(j/3)+1) + j*cell_border + ((cell_size - w) / 2),
