@@ -5,6 +5,7 @@ import time
 class Sudoku:
     def __init__(self, file_name):
         self.board = np.genfromtxt(fname=file_name, delimiter=',', dtype='int8')
+        self.initial_board = self.board.copy()
 
     def get_row(self, row, assigned=True):
        """Returns the values in row `row`"""
@@ -72,22 +73,49 @@ class Sudoku:
                 print_line_sep()
 
     def output_img(self, file_name="sudoku.png"):
-        """Creates an image of the sudoku board"""
-        from PIL import Image, ImageDraw
-        pass
+        """Creates an imag of the sudoku board"""
+        from PIL import Image, ImageDraw, ImageFont
+        cell_size = 50
+        cell_border = 3
+        block_border = 5
+        num_size = 40
+        initial_num_color = "blue"
+        num_color = "black"
+        cell_color = "white"
+        background_color = "black"
+
+        SIZE = 9*cell_size + 9*cell_border + 4*block_border
+        img = Image.new(mode="RGBA", size=(SIZE, SIZE), color=background_color)
+        draw = ImageDraw.Draw(img)
+
+        for i, row in enumerate(self.board):
+            for j, col in enumerate(row):
+                draw.rectangle([
+                    j*cell_size + block_border*(int(j/3)+1) + j*cell_border, i*cell_size + block_border*(int(i/3)+1) + i*cell_border,
+                    (j+1)*cell_size + block_border*(int(j/3)+1) + j*cell_border, (i+1)*cell_size + block_border*(int(i/3)+1) + i*cell_border],
+                    cell_color)
+
+                font = ImageFont.truetype("OpenSans-Regular.ttf", num_size)
+                w, h = draw.textsize(str(col), font)
+                draw.text((
+                    j*cell_size + block_border*(int(j/3)+1) + j*cell_border + ((cell_size - w) / 2),
+                    i*cell_size + block_border*(int(i/3)+1) + i*cell_border + ((cell_size - h) / 4)),
+                str(col), fill=num_color if self.initial_board[i,j] == 0 else initial_num_color, font=font)        
+
+        img.save(file_name)
 
 class Solver():
     def __init__(self, file_name):
         self.sudoku = Sudoku(file_name)
-        self.domains = dict()
+        self.candidates = dict()
         self.solve()
 
-    def update_domains(self):
+    def update_candidates(self):
         """Updates a dictionary mapping unassigned cells to the possible values they could take"""
-        if self.domains:
-            self.domains = {index:[i for i in self.sudoku.get_values(index) if i in self.domains[index]] for index in self.sudoku.get_unassigned_indices()}
+        if self.candidates:
+            self.candidates = {index:[i for i in self.sudoku.get_values(index) if i in self.candidates[index]] for index in self.sudoku.get_unassigned_indices()}
         else:
-            self.domains = {index:self.sudoku.get_values(index) for index in self.sudoku.get_unassigned_indices()}
+            self.candidates = {index:self.sudoku.get_values(index) for index in self.sudoku.get_unassigned_indices()}
 
     def check_naked_single(self):
         """Checks for naked singles and updates the board if one is found. Returns `True` if changes were made else `False`"""
@@ -95,13 +123,13 @@ class Solver():
         changes_made = False
         while revised:
             revised = False
-            for index, domain in self.domains.items():
-                if len(domain) == 1:
-                    self.sudoku.board[index[0], index[1]] = domain[0]
-                    self.update_domains()
+            for index, candidate in self.candidates.items():
+                if len(candidate) == 1:
+                    self.sudoku.board[index[0], index[1]] = candidate[0]
+                    self.update_candidates()
                     revised = True
                     changes_made = True
-            self.update_domains()
+            self.update_candidates()
 
         return changes_made
 
@@ -114,13 +142,13 @@ class Solver():
             in_revised = False
             check = {i:list() for i in range(1,10)}
             for cell in cells:
-                for d in self.domains[cell]:
+                for d in self.candidates[cell]:
                     check[d].append(cell)
             for key, value in check.items():
-                if len(value) == 1 and value[0] in self.domains.keys():
+                if len(value) == 1 and value[0] in self.candidates.keys():
                     self.sudoku.board[value[0]] = key
-                    self.domains.pop(value[0])
-                    self.update_domains()
+                    self.candidates.pop(value[0])
+                    self.update_candidates()
                     in_revised = True
             return in_revised
         
@@ -136,21 +164,21 @@ class Solver():
         return changes_made
 
     def check_naked_candidates(self, n):
-        """Checks for naked pairs and updates the domains is one is found. Returns `True` if changes were made else `False`"""
+        """Checks for naked pairs and updates the candidates is one is found. Returns `True` if changes were made else `False`"""
         revised = True
         changes_made = False
 
         def check_naked(cells):
             in_revised = False
             for cell in cells:
-                if len(self.domains[cell]) != n:
+                if len(self.candidates[cell]) != n:
                     continue
-                cells_with_same_domain = self.get_cells_with_domain(self.domains[cell], cells)
-                if len(cells_with_same_domain) == n:
-                    for c in [i for i in cells if i not in cells_with_same_domain]:
-                        for to_remove in self.domains[cell]:
+                cells_with_same_candidate = self.get_cells_with_candidate(self.candidates[cell], cells)
+                if len(cells_with_same_candidate) == n:
+                    for c in [i for i in cells if i not in cells_with_same_candidate]:
+                        for to_remove in self.candidates[cell]:
                             try:
-                                self.domains[c].remove(to_remove)
+                                self.candidates[c].remove(to_remove)
                                 in_revised = True
                             except:
                                 pass
@@ -168,7 +196,7 @@ class Solver():
         return changes_made
 
     def check_hidden_candidates(self, n):
-        """Checks for hidden pairs and updates the domains if one is found. Returns `True` if changes were made else `False`"""
+        """Checks for hidden pairs and updates the candidates if one is found. Returns `True` if changes were made else `False`"""
         revised = True
         changes_made = False
 
@@ -177,15 +205,15 @@ class Solver():
             check = {i:set() for i in itertools.combinations(range(1,10), n)}
             for combination in check.items():
                 for cell in cells:
-                    if any(True if i in self.domains[cell] else False for i in combination[0]):
+                    if any(True if i in self.candidates[cell] else False for i in combination[0]):
                         check[combination[0]].add(cell)
 
             for combination, c in check.items():
-                if len(c) == n and len(set([j for i in c for j in self.domains[i] if j in combination])) == n:
+                if len(c) == n and len(set([j for i in c for j in self.candidates[i] if j in combination])) == n:
                     for cell in c:
-                        a = sorted(self.domains[cell])
-                        self.domains[cell] = [i for i in self.domains[cell] if i in combination]
-                        if a != sorted(self.domains[cell]):
+                        a = sorted(self.candidates[cell])
+                        self.candidates[cell] = [i for i in self.candidates[cell] if i in combination]
+                        if a != sorted(self.candidates[cell]):
                             in_revised = True
             return in_revised
 
@@ -209,12 +237,12 @@ class Solver():
         def check_pointing(cells):
             in_revised = False
             check = {i:{"rows":set(), "cols":set()} for i in range(1, 10)}
-            check_domain = {i:set() for i in range(1, 10)}
+            check_candidate = {i:set() for i in range(1, 10)}
             for cell in cells:
-                for d in self.domains[cell]:
+                for d in self.candidates[cell]:
                     check[d]["rows"].add(cell[0])
                     check[d]["cols"].add(cell[1])
-                    check_domain[d].add(cell)
+                    check_candidate[d].add(cell)
             tmp = ("rows", "cols")
             for i in range(2):
                 for d, row_cols in check.items():
@@ -224,37 +252,37 @@ class Solver():
                         rc = row_cols[tmp[i]].pop()
                         if i == 0:
                             for j in range(9):
-                                if (rc, j) in self.domains.keys() and (rc, j) not in cells:
+                                if (rc, j) in self.candidates.keys() and (rc, j) not in cells:
                                     try:
-                                        self.domains[rc, j].remove(d)
+                                        self.candidates[rc, j].remove(d)
                                         in_revised = True
                                     except:
                                         pass
-                            if len(set([int(k[1] / 3) for k in check_domain[d] if k[0] == rc])) == 1:
-                                pointing_cells = [k for k in check_domain[d] if k[0] == rc]
+                            if len(set([int(k[1] / 3) for k in check_candidate[d] if k[0] == rc])) == 1:
+                                pointing_cells = [k for k in check_candidate[d] if k[0] == rc]
                                 for c in self.sudoku.get_9x9_indices((int(rc / 3), int(pointing_cells[0][1] / 3))):
                                     if c not in pointing_cells:
                                         try:
-                                            self.domains[c].remove(d)
+                                            self.candidates[c].remove(d)
                                             in_revised = True
                                         except:
                                             pass
 
                         else:
                             for j in range(9):
-                                if (j, rc) in self.domains.keys() and (j, rc) not in cells:
+                                if (j, rc) in self.candidates.keys() and (j, rc) not in cells:
                                     try:
-                                        self.domains[j, rc].remove(d)
+                                        self.candidates[j, rc].remove(d)
                                         in_revised = True
                                     except:
                                         pass
 
-                            if len(set([int(k[0] / 3) for k in check_domain[d] if k[1] == rc])) == 1:
-                                pointing_cells = [k for k in check_domain[d] if k[1] == rc]
+                            if len(set([int(k[0] / 3) for k in check_candidate[d] if k[1] == rc])) == 1:
+                                pointing_cells = [k for k in check_candidate[d] if k[1] == rc]
                                 for c in self.sudoku.get_9x9_indices((int(pointing_cells[0][0] / 3), int(rc / 3))):
                                     if c not in pointing_cells:
                                         try:
-                                            self.domains[c].remove(d)
+                                            self.candidates[c].remove(d)
                                             in_revised = True
                                         except:
                                             pass
@@ -288,11 +316,11 @@ class Solver():
 
         return any(changes_made)
 
-    def get_cells_with_domain(self, domain, cells):
-        """Returns the cells with domain `domain` in `cells`"""
+    def get_cells_with_candidate(self, candidate, cells):
+        """Returns the cells with candidate `candidate` in `cells`"""
         same_cells = []
         for cell in cells:
-            if cell in self.domains.keys() and self.domains[cell] == domain:
+            if cell in self.candidates.keys() and self.candidates[cell] == candidate:
                 same_cells.append(cell)
 
         return same_cells
@@ -317,6 +345,6 @@ class Solver():
             print("The current version of the program cannot solve the sudoku")
 
 a = time.time_ns()
-s = Solver("sudokus/sudoku4.txt")
+s = Solver("sudokus/sudoku3.txt")
 b = time.time_ns()
 print(f"Time: {(b-a)/1000000}")
