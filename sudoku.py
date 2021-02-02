@@ -1,4 +1,5 @@
 import numpy as np
+import itertools
 import time
 
 class Sudoku:
@@ -88,28 +89,8 @@ class Solver():
         else:
             self.domains = {index:self.sudoku.get_values(index) for index in self.sudoku.get_unassigned_indices()}
 
-    def check_only_option(self):
-        """Checks if there's only one domain in a 9x9 area that contains a value and updates the board if there is. Returns `True` if changes were made else `False`"""
-        revised = True
-        changes_made = False
-        while revised:
-            revised = False
-            for area_9x9 in [(i,j) for i in range(3) for j in range(3)]:
-                cells = self.sudoku.get_9x9_indices(area_9x9)
-                check = {i:list() for i in range(1,10)}
-                for cell in cells:
-                    for d in self.domains[cell]:
-                        check[d].append(cell)
-                for key, value in check.items():
-                    if len(value) == 1:# and value[0] in self.domains.keys():
-                        self.sudoku.board[value[0]] = key
-                        self.domains.pop(value[0])
-                        self.update_domains()
-                        revised = True
-                        changes_made = True
-            
-    def check_unique_candidates(self):
-        """Checks if a cell's domain has only one value and updates the board if it has. Returns `True` if changes were made else `False`"""
+    def check_naked_single(self):
+        """Checks for naked singles and updates the board if one is found. Returns `True` if changes were made else `False`"""
         revised = True
         changes_made = False
         while revised:
@@ -124,96 +105,208 @@ class Solver():
 
         return changes_made
 
-    def check_double_candidates(self):
-        """Checks if 2 cells share the same domain and updates the domains if they do. Returns `True` if changes were made else `False`"""
+    def check_hidden_single(self):
+        """Checks for hidden singles and updates the board if one is found. Returns `True` if changes were made else `False`"""
         revised = True
         changes_made = False
+
+        def check_hidden(cells):
+            in_revised = False
+            check = {i:list() for i in range(1,10)}
+            for cell in cells:
+                for d in self.domains[cell]:
+                    check[d].append(cell)
+            for key, value in check.items():
+                if len(value) == 1 and value[0] in self.domains.keys():
+                    self.sudoku.board[value[0]] = key
+                    self.domains.pop(value[0])
+                    self.update_domains()
+                    in_revised = True
+            return in_revised
+        
         while revised:
             revised = False
             for area_9x9 in [(i,j) for i in range(3) for j in range(3)]:
-                cells = self.sudoku.get_9x9_indices(area_9x9)
-                for cell in cells:
-                    if len(self.domains[cell]) != 2:
-                        continue
-                    cells_with_same_domain = self.get_cells_with_domain(self.domains[cell], area_9x9)
-                    if len(cells_with_same_domain) == 2:
-                        for c in [i for i in cells if i not in cells_with_same_domain]:
+                revised = False if not check_hidden(self.sudoku.get_9x9_indices(area_9x9)) and not revised else True
+            for i in range(9):
+                revised = False if not check_hidden([(i, j) for j in range(9) if self.sudoku.board[i,j] == 0]) and not revised else True
+                revised = False if not check_hidden([(j, i) for j in range(9) if self.sudoku.board[j,i] == 0]) and not revised else True
+            if revised:
+                changes_made = True
+        return changes_made
+
+    def check_naked_candidates(self, n):
+        """Checks for naked pairs and updates the domains is one is found. Returns `True` if changes were made else `False`"""
+        revised = True
+        changes_made = False
+
+        def check_naked(cells):
+            in_revised = False
+            for cell in cells:
+                if len(self.domains[cell]) != n:
+                    continue
+                cells_with_same_domain = self.get_cells_with_domain(self.domains[cell], cells)
+                if len(cells_with_same_domain) == n:
+                    for c in [i for i in cells if i not in cells_with_same_domain]:
+                        for to_remove in self.domains[cell]:
                             try:
-                                if self.domains[cell][0] in self.domains[c]:
-                                    self.domains[c].remove(self.domains[cell][0])
-                                    revised = True
-                                    changes_made = True
-                                self.domains[c].remove(self.domains[cell][1])
-                                revised = True
-                                changes_made = True
+                                self.domains[c].remove(to_remove)
+                                in_revised = True
                             except:
                                 pass
-        return changes_made
+            return in_revised
 
-    def check_inline_candidates(self):
-        """Checks if a domain value is only present in a row or col and updates the domains if they are. Returns `True` if changes were made else `False`"""
-        revised = True
-        changes_made = False
         while revised:
             revised = False
             for area_9x9 in [(i,j) for i in range(3) for j in range(3)]:
-                cells = self.sudoku.get_9x9_indices(area_9x9)
-                check = {i:{"rows":set(), "cols":set()} for i in range(1, 10)}
-                for cell in cells:
-                    for d in self.domains[cell]:
-                        check[d]["rows"].add(cell[0])
-                        check[d]["cols"].add(cell[1])
-                tmp = ("rows", "cols")
-                for i in range(2):
-                    for d, row_cols in check.items():
-                        if not row_cols[tmp[i]]:
-                            continue
-                        if len(row_cols[tmp[i]]) == 1:
-                            rc = row_cols[tmp[i]].pop()
-                            if i == 0:
-                                for j in range(9):
-                                    if (rc, j) in self.domains.keys() and (rc, j) not in cells:
-                                        try:
-                                            self.domains[rc, j].remove(d)
-                                            revised = True
-                                            changes_made = True
-                                        except:
-                                            pass
-                            else:
-                                for j in range(9):
-                                    if (j, rc) in self.domains.keys() and (j, rc) not in cells:
-                                        try:
-                                            self.domains[j, rc].remove(d)
-                                            revised = True
-                                            changes_made = True
-                                        except:
-                                            pass
-
-            time.sleep(0.1)
-
+                revised = False if not check_naked(self.sudoku.get_9x9_indices(area_9x9)) and not revised else True
+            for i in range(9):
+                revised = False if not check_naked([(i, j) for j in range(9) if self.sudoku.board[i,j] == 0]) and not revised else True
+                revised = False if not check_naked([(j, i) for j in range(9) if self.sudoku.board[j,i] == 0]) and not revised else True
+            if revised:
+                changes_made = True
         return changes_made
 
-    def get_cells_with_domain(self, domain, area_9x9):
-        """Returns the cells with domain `domain` in `area_9x9`"""
-        cells = []
-        for cell in self.sudoku.get_9x9_indices(area_9x9):
-            if cell in self.domains.keys() and self.domains[cell] == domain:
-                cells.append(cell)
+    def check_hidden_candidates(self, n):
+        """Checks for hidden pairs and updates the domains if one is found. Returns `True` if changes were made else `False`"""
+        revised = True
+        changes_made = False
 
-        return cells
+        def check_hidden(cells):
+            in_revised = False
+            check = {i:set() for i in itertools.combinations(range(1,10), n)}
+            for combination in check.items():
+                for cell in cells:
+                    if any(True if i in self.domains[cell] else False for i in combination[0]):
+                        check[combination[0]].add(cell)
+
+            for combination, c in check.items():
+                if len(c) == n and len(set([j for i in c for j in self.domains[i] if j in combination])) == n:
+                    for cell in c:
+                        a = sorted(self.domains[cell])
+                        self.domains[cell] = [i for i in self.domains[cell] if i in combination]
+                        if a != sorted(self.domains[cell]):
+                            in_revised = True
+            return in_revised
+
+        while revised:
+            revised = False
+            for area_9x9 in [(i,j) for i in range(3) for j in range(3)]:
+                revised = False if not check_hidden(self.sudoku.get_9x9_indices(area_9x9)) and not revised else True
+            for i in range(9):
+                revised = False if not check_hidden([(i, j) for j in range(9) if self.sudoku.board[i,j] == 0]) and not revised else True
+                revised = False if not check_hidden([(j, i) for j in range(9) if self.sudoku.board[j,i] == 0]) and not revised else True
+            if revised:
+                changes_made = True
+    
+        return changes_made
+
+    def check_all_pointing(self):
+        """Checks for pointing pairs and triples and updates the board if one is found. Returns `True` if changes were made else `False`"""
+        revised = True
+        changes_made = False
+
+        def check_pointing(cells):
+            in_revised = False
+            check = {i:{"rows":set(), "cols":set()} for i in range(1, 10)}
+            check_domain = {i:set() for i in range(1, 10)}
+            for cell in cells:
+                for d in self.domains[cell]:
+                    check[d]["rows"].add(cell[0])
+                    check[d]["cols"].add(cell[1])
+                    check_domain[d].add(cell)
+            tmp = ("rows", "cols")
+            for i in range(2):
+                for d, row_cols in check.items():
+                    if not row_cols[tmp[i]]:
+                        continue
+                    if len(row_cols[tmp[i]]) == 1:
+                        rc = row_cols[tmp[i]].pop()
+                        if i == 0:
+                            for j in range(9):
+                                if (rc, j) in self.domains.keys() and (rc, j) not in cells:
+                                    try:
+                                        self.domains[rc, j].remove(d)
+                                        in_revised = True
+                                    except:
+                                        pass
+                            if len(set([int(k[1] / 3) for k in check_domain[d] if k[0] == rc])) == 1:
+                                pointing_cells = [k for k in check_domain[d] if k[0] == rc]
+                                for c in self.sudoku.get_9x9_indices((int(rc / 3), int(pointing_cells[0][1] / 3))):
+                                    if c not in pointing_cells:
+                                        try:
+                                            self.domains[c].remove(d)
+                                            in_revised = True
+                                        except:
+                                            pass
+
+                        else:
+                            for j in range(9):
+                                if (j, rc) in self.domains.keys() and (j, rc) not in cells:
+                                    try:
+                                        self.domains[j, rc].remove(d)
+                                        in_revised = True
+                                    except:
+                                        pass
+
+                            if len(set([int(k[0] / 3) for k in check_domain[d] if k[1] == rc])) == 1:
+                                pointing_cells = [k for k in check_domain[d] if k[1] == rc]
+                                for c in self.sudoku.get_9x9_indices((int(pointing_cells[0][0] / 3), int(rc / 3))):
+                                    if c not in pointing_cells:
+                                        try:
+                                            self.domains[c].remove(d)
+                                            in_revised = True
+                                        except:
+                                            pass
+                        
+            return in_revised
+
+        while revised:
+            revised = False
+            for i in range(9):
+                revised = False if not check_pointing([(i, j) for j in range(9) if self.sudoku.board[i,j] == 0]) and not revised else True
+                revised = False if not check_pointing([(j, i) for j in range(9) if self.sudoku.board[j,i] == 0]) and not revised else True
+            if revised:
+                changes_made = True
+        return changes_made
+
+    def check_all_hidden(self):
+        """Checks for hidden singles, pairs, triples, quad. Returns `True` if changes were made else `False`"""
+        changes_made = []
+        changes_made.append(self.check_hidden_single())
+        for i in range(2,5):
+            changes_made.append(self.check_hidden_candidates(i))
+
+        return any(changes_made)
+
+    def check_all_naked(self):
+        """Checks for naked singles, pairs, triples, quad. Returns `True` if changes were made else `False`"""
+        changes_made = []
+        changes_made.append(self.check_naked_single())
+        for i in range(2,5):
+            changes_made.append(self.check_naked_candidates(i))
+
+        return any(changes_made)
+
+    def get_cells_with_domain(self, domain, cells):
+        """Returns the cells with domain `domain` in `cells`"""
+        same_cells = []
+        for cell in cells:
+            if cell in self.domains.keys() and self.domains[cell] == domain:
+                same_cells.append(cell)
+
+        return same_cells
         
     def solve(self):
         """Solves the sudoku if it has a solution"""
         changes = [True]
-        self.sudoku.pretty_print()
         while any(changes):
-            self.update_domains()
             changes = []
             changes.extend([
-                self.check_unique_candidates(),
-                self.check_double_candidates(),
-                self.check_only_option(),
-                self.check_inline_candidates()])
+                self.check_all_naked(),
+                self.check_all_hidden(),
+                self.check_all_pointing()
+            ])
 
         if self.sudoku.is_complete() and self.sudoku.is_consistent():
             print("Solution Found")
@@ -223,4 +316,7 @@ class Solver():
         else:
             print("The current version of the program cannot solve the sudoku")
 
-s = Solver("sudoku/sudoku.txt")
+a = time.time_ns()
+s = Solver("sudokus/sudoku4.txt")
+b = time.time_ns()
+print(f"Time: {(b-a)/1000000}")
