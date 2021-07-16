@@ -1,5 +1,5 @@
 # Sudoku Solver
-A Python Programs that solves sudokus.
+A Python Program that solves sudokus.
 
 The current version of the program can solve *easy-medium* sudokus
 
